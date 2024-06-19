@@ -15,8 +15,6 @@ with open("README.md", encoding="utf-8") as file_object:
 
 packages = find_packages()
 
-# Create platform specific wheel
-# https://stackoverflow.com/a/45150383/9669050
 try:
     from wheel.bdist_wheel import bdist_wheel as _bdist_wheel
 
@@ -26,7 +24,7 @@ try:
             self.root_is_pure = False
 
 except ImportError:
-    bdist_wheel = None  # type: ignore
+    bdist_wheel = None
 
 ci_require = [
     "bandit>=1.6.0",
@@ -47,7 +45,6 @@ tests_require = [
 
 yubikey_require = ["yubikey-manager==5.1.*"]
 
-# Determine the appropriate version of pygit2 based on the Python version
 if sys.version_info > (3, 10):
     pygit2_version = "pygit2==1.14.1"
 elif sys.version_info >= (3, 7) and sys.version_info <= (3, 10):
@@ -112,11 +109,10 @@ kwargs = {
     ],
 }
 
-
 try:
     tests_exist = find_spec("taf.tests")
 except ModuleNotFoundError:
-    tests_exist = False  # type: ignore
+    tests_exist = False
 if tests_exist:
     kwargs["entry_points"]["pytest11"] = (
         ["taf_yubikey_utils = taf.tests.yubikey_utils"],

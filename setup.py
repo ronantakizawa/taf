@@ -15,6 +15,8 @@ with open("README.md", encoding="utf-8") as file_object:
 
 packages = find_packages()
 
+# Create platform specific wheel
+# https://stackoverflow.com/a/45150383/9669050
 try:
     from wheel.bdist_wheel import bdist_wheel as _bdist_wheel
 
@@ -45,6 +47,7 @@ tests_require = [
 
 yubikey_require = ["yubikey-manager==5.1.*"]
 
+# Determine the appropriate version of pygit2 based on the Python version
 if sys.version_info > (3, 10):
     pygit2_version = "pygit2==1.14.1"
 elif sys.version_info >= (3, 7) and sys.version_info <= (3, 10):
@@ -61,7 +64,7 @@ kwargs = {
     "author_email": AUTHOR_EMAIL,
     "keywords": KEYWORDS,
     "packages": packages,
-    "cmdclass": {"bdist_wheel": bdist_wheel},
+    "cmdclass": {"bdist_wheel": bdist_wheel} if bdist_wheel else {},
     "include_package_data": True,
     "data_files": [("lib/site-packages/taf", ["./LICENSE.md", "./README.md"])],
     "zip_safe": False,

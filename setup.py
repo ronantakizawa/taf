@@ -26,7 +26,7 @@ try:
             self.root_is_pure = False
 
 except ImportError:
-    bdist_wheel = None
+    bdist_wheel = None  # type: ignore
 
 ci_require = [
     "bandit>=1.6.0",
@@ -64,7 +64,7 @@ kwargs = {
     "author_email": AUTHOR_EMAIL,
     "keywords": KEYWORDS,
     "packages": packages,
-    "cmdclass": {"bdist_wheel": bdist_wheel} if bdist_wheel else {},
+    "cmdclass": {"bdist_wheel": bdist_wheel},
     "include_package_data": True,
     "data_files": [("lib/site-packages/taf", ["./LICENSE.md", "./README.md"])],
     "zip_safe": False,
@@ -112,10 +112,11 @@ kwargs = {
     ],
 }
 
+
 try:
     tests_exist = find_spec("taf.tests")
 except ModuleNotFoundError:
-    tests_exist = False
+    tests_exist = False  # type: ignore
 if tests_exist:
     kwargs["entry_points"]["pytest11"] = (
         ["taf_yubikey_utils = taf.tests.yubikey_utils"],

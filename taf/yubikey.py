@@ -502,3 +502,32 @@ def yubikey_prompt(
         if success:
             return key, serial_num
         retry_counter += 1
+
+
+def upload_key(key_path, slot) -> None:
+    try:
+        with open(key_path, "rb") as key_file:
+            private_key_pem = key_file.read()
+
+        # Mapping the slot input to the correct SLOT enum
+        slot_mapping = {
+            "9a": SLOT.AUTHENTICATION,
+            "9c": SLOT.SIGNATURE,
+            "9d": SLOT.KEY_MANAGEMENT,
+            "9e": SLOT.CARD_AUTH,
+        }
+        slot_enum = slot_mapping.get(slot)
+
+        if slot_enum is None:
+            print(f"Error: Invalid slot '{slot}' provided.")
+            return
+
+        pin = get_and_validate_pin(f"YubiKey Slot {slot}")
+        setup(
+            pin,
+            cert_cn=f"Imported Key for Slot {slot}",
+            private_key_pem=private_key_pem,
+        )
+        print(f"Key successfully uploaded to YubiKey slot {slot}")
+    except Exception as e:
+        print(f"Error uploading key to YubiKey: {e}")

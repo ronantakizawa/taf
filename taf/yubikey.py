@@ -98,8 +98,9 @@ def _yk_piv_ctrl(serial=None, pub_key_pem=None):
     """Context manager to open connection and instantiate Piv Session.
 
     Args:
-        - pub_key_pem(str): Match Yubikey's public key (PEM) if multiple keys
-                            are inserted
+        - serial (optional): Specify the serial number of the YubiKey to use.
+        - pub_key_pem (optional): Match Yubikey's public key (PEM) if multiple keys
+                                  are inserted.
 
     Returns:
         - ykman.piv.PivSession
@@ -107,11 +108,8 @@ def _yk_piv_ctrl(serial=None, pub_key_pem=None):
     Raises:
         - YubikeyError
     """
-    # If pub_key_pem is given, iterate all devices, read x509 certs and try to match
-    # public keys.
     if pub_key_pem is not None:
         for dev, info in list_all_devices():
-            # Connect to a YubiKey over a SmartCardConnection, which is needed for PIV.
             with dev.open_connection(SmartCardConnection) as connection:
                 session = PivSession(connection)
                 device_pub_key_pem = (
@@ -123,21 +121,19 @@ def _yk_piv_ctrl(serial=None, pub_key_pem=None):
                     )
                     .decode("utf-8")
                 )
-                # Tries to match without last newline char
                 if (
                     device_pub_key_pem == pub_key_pem
                     or device_pub_key_pem[:-1] == pub_key_pem
                 ):
+                    yield session, info.serial
                     break
-                yield session, info.serial
     else:
         for dev, info in list_all_devices():
             if serial is None or info.serial == serial:
                 with dev.open_connection(SmartCardConnection) as connection:
                     session = PivSession(connection)
                     yield session, info.serial
-            else:
-                pass
+                    break
 
 
 def is_inserted():
@@ -156,80 +152,88 @@ def is_inserted():
 
 
 @raise_yubikey_err()
-def is_valid_pin(pin):
+def is_valid_pin(pin, serial=None):
     """Checks if given pin is valid.
 
     Args:
-        pin(str): Yubikey piv PIN
+        pin (str): Yubikey PIV PIN.
+        serial (optional): Specify the serial number of the YubiKey to use.
 
     Returns:
-        tuple: True if PIN is valid, otherwise False, number of PIN retries
+        tuple: True if PIN is valid, otherwise False, number of PIN retries.
 
     Raises:
         - YubikeyError
     """
-    with _yk_piv_ctrl() as (ctrl, _):
+    with _yk_piv_ctrl(serial=serial) as (ctrl, _):
         try:
             ctrl.verify_pin(pin)
-            return True, None  # ctrl.get_pin_tries() fails if PIN is valid
+            return True, None
         except InvalidPinError:
             return False, ctrl.get_pin_attempts()
 
 
 @raise_yubikey_err("Cannot get serial number.")
-def get_serial_num(pub_key_pem=None):
+def get_serial_num(pub_key_pem=None, serial=None):
     """Get Yubikey serial number.
 
     Args:
-        - pub_key_pem(str): Match Yubikey's public key (PEM) if multiple keys
-                            are inserted
+        - pub_key_pem (optional): Match Yubikey's public key (PEM) if multiple keys
+                                  are inserted.
+        - serial (optional): Specify the serial number of the YubiKey to use.
 
     Returns:
-        Yubikey serial number
+        Yubikey serial number.
 
     Raises:
         - YubikeyError
     """
-    with _yk_piv_ctrl(pub_key_pem=pub_key_pem) as (_, serial):
-        return serial
+    with _yk_piv_ctrl(pub_key_pem=pub_key_pem, serial=serial) as (_, serial_num):
+        return serial_num
 
 
 @raise_yubikey_err("Cannot export x509 certificate.")
-def export_piv_x509(cert_format=serialization.Encoding.PEM, pub_key_pem=None):
-    """Exports YubiKey's piv slot x509.
+def export_piv_x509(
+    cert_format=serialization.Encoding.PEM, pub_key_pem=None, serial=None
+):
+    """Exports YubiKey's PIV slot x509.
 
     Args:
-        - cert_format(str): One of 'serialization.Encoding' formats.
-        - pub_key_pem(str): Match Yubikey's public key (PEM) if multiple keys
-                            are inserted
+        - cert_format (str): One of 'serialization.Encoding' formats.
+        - pub_key_pem (optional): Match Yubikey's public key (PEM) if multiple keys
+                                  are inserted.
+        - serial (optional): Specify the serial number of the YubiKey to use.
 
     Returns:
-        PIV x509 certificate in a given format (bytes)
+        PIV x509 certificate in a given format (bytes).
 
     Raises:
         - YubikeyError
     """
-    with _yk_piv_ctrl(pub_key_pem=pub_key_pem) as (ctrl, _):
+    with _yk_piv_ctrl(pub_key_pem=pub_key_pem, serial=serial) as (ctrl, _):
         x509 = ctrl.get_certificate(SLOT.SIGNATURE)
         return x509.public_bytes(encoding=cert_format)
 
 
 @raise_yubikey_err("Cannot export public key.")
-def export_piv_pub_key(pub_key_format=serialization.Encoding.PEM, pub_key_pem=None):
-    """Exports YubiKey's piv slot public key.
+def export_piv_pub_key(
+    pub_key_format=serialization.Encoding.PEM, pub_key_pem=None, serial=None
+):
+    """Exports YubiKey's PIV slot public key.
 
     Args:
-        - pub_key_format(str): One of 'serialization.Encoding' formats.
-        - pub_key_pem(str): Match Yubikey's public key (PEM) if multiple keys
-                            are inserted
+        - pub_key_format (str): One of 'serialization.Encoding' formats.
+        - pub_key_pem (optional): Match Yubikey's public key (PEM) if multiple keys
+                                  are inserted.
+        - serial (optional): Specify the serial number of the YubiKey to use.
 
     Returns:
-        PIV public key in a given format (bytes)
+        PIV public key in a given format (bytes).
 
     Raises:
         - YubikeyError
     """
-    with _yk_piv_ctrl(pub_key_pem=pub_key_pem) as (ctrl, _):
+    with _yk_piv_ctrl(pub_key_pem=pub_key_pem, serial=serial) as (ctrl, _):
         x509 = ctrl.get_certificate(SLOT.SIGNATURE)
         return x509.public_key().public_bytes(
             encoding=pub_key_format,
@@ -238,7 +242,7 @@ def export_piv_pub_key(pub_key_format=serialization.Encoding.PEM, pub_key_pem=No
 
 
 @raise_yubikey_err("Cannot export yk certificate.")
-def export_yk_certificate(certs_dir, key):
+def export_yk_certificate(certs_dir, key, serial=None):
     if certs_dir is None:
         certs_dir = Path.home()
     else:
@@ -246,18 +250,28 @@ def export_yk_certificate(certs_dir, key):
     certs_dir.mkdir(parents=True, exist_ok=True)
     cert_path = certs_dir / f"{key['keyid']}.cert"
     print(f"Exporting certificate to {cert_path}")
-    with open(cert_path, "wb") as f:
-        f.write(export_piv_x509())
+
+    # Use the serial parameter to ensure we are interacting with the correct YubiKey
+    with _yk_piv_ctrl(serial=serial) as (ctrl, _):
+        with open(cert_path, "wb") as f:
+            f.write(
+                ctrl.get_certificate(SLOT.SIGNATURE).public_bytes(
+                    encoding=serialization.Encoding.PEM
+                )
+            )
 
 
 @raise_yubikey_err("Cannot get public key in TUF format.")
-def get_piv_public_key_tuf(scheme=DEFAULT_RSA_SIGNATURE_SCHEME, pub_key_pem=None):
+def get_piv_public_key_tuf(
+    scheme=DEFAULT_RSA_SIGNATURE_SCHEME, pub_key_pem=None, serial=None
+):
     """Return public key from a Yubikey in TUF's RSAKEY_SCHEMA format.
 
     Args:
-        - scheme(str): Rsa signature scheme (default is rsa-pkcs1v15-sha256)
-        - pub_key_pem(str): Match Yubikey's public key (PEM) if multiple keys
-                            are inserted
+        - scheme (str): RSA signature scheme (default is rsa-pkcs1v15-sha256)
+        - pub_key_pem (optional): Match Yubikey's public key (PEM) if multiple keys
+                                  are inserted.
+        - serial (optional): Specify the serial number of the YubiKey to use.
 
     Returns:
         A dictionary containing the RSA keys and other identifying information
@@ -267,19 +281,22 @@ def get_piv_public_key_tuf(scheme=DEFAULT_RSA_SIGNATURE_SCHEME, pub_key_pem=None
     Raises:
         - YubikeyError
     """
-    pub_key_pem = export_piv_pub_key(pub_key_pem=pub_key_pem).decode("utf-8")
+    pub_key_pem = export_piv_pub_key(pub_key_pem=pub_key_pem, serial=serial).decode(
+        "utf-8"
+    )
     return import_rsakey_from_pem(pub_key_pem, scheme)
 
 
 @raise_yubikey_err("Cannot sign data.")
-def sign_piv_rsa_pkcs1v15(data, pin, pub_key_pem=None):
-    """Sign data with key from YubiKey's piv slot.
+def sign_piv_rsa_pkcs1v15(data, pin, pub_key_pem=None, serial=None):
+    """Sign data with key from YubiKey's PIV slot.
 
     Args:
-        - data(bytes): Data to be signed
-        - pin(str): Pin for piv slot login.
-        - pub_key_pem(str): Match Yubikey's public key (PEM) if multiple keys
-                            are inserted
+        - data (bytes): Data to be signed
+        - pin (str): Pin for PIV slot login.
+        - pub_key_pem (optional): Match Yubikey's public key (PEM) if multiple keys
+                                  are inserted.
+        - serial (optional): Specify the serial number of the YubiKey to use.
 
     Returns:
         Signature (bytes)
@@ -287,7 +304,7 @@ def sign_piv_rsa_pkcs1v15(data, pin, pub_key_pem=None):
     Raises:
         - YubikeyError
     """
-    with _yk_piv_ctrl(pub_key_pem=pub_key_pem) as (ctrl, _):
+    with _yk_piv_ctrl(pub_key_pem=pub_key_pem, serial=serial) as (ctrl, _):
         ctrl.verify_pin(pin)
         return ctrl.sign(
             SLOT.SIGNATURE, KEY_TYPE.RSA2048, data, hashes.SHA256(), padding.PKCS1v15()
@@ -302,23 +319,25 @@ def setup(
     pin_retries=10,
     private_key_pem=None,
     mgm_key=generate_random_management_key(MANAGEMENT_KEY_TYPE.TDES),
+    serial=None,
 ):
     """Use to setup inserted Yubikey, with following steps (order is important):
       - reset to factory settings
       - set management key
       - generate key(RSA2048) or import given one
-      - generate and import self-signed certificate(X509)
+      - generate and import self-signed certificate (X509)
       - set pin retries
       - set pin
-      - set puk(same as pin)
+      - set puk (same as pin)
 
     Args:
-        - cert_cn(str): x509 common name
-        - cert_exp_days(int): x509 expiration (in days from now)
-        - pin_retries(int): Number of retries for PIN
-        - private_key_pem(str): Private key in PEM format. If given, it will be
-                                imported to Yubikey.
-        - mgm_key(bytes): New management key
+        - cert_cn (str): x509 common name
+        - cert_exp_days (int): x509 expiration (in days from now)
+        - pin_retries (int): Number of retries for PIN
+        - private_key_pem (optional): Private key in PEM format. If given, it will be
+                                      imported to Yubikey.
+        - mgm_key (bytes): New management key
+        - serial (optional): Specify the serial number of the YubiKey to use.
 
     Returns:
         PIV public key in PEM format (bytes)
@@ -326,7 +345,7 @@ def setup(
     Raises:
         - YubikeyError
     """
-    with _yk_piv_ctrl() as (ctrl, _):
+    with _yk_piv_ctrl(serial=serial) as (ctrl, _):
         # Factory reset and set PINs
         ctrl.reset()
 
@@ -386,22 +405,24 @@ def setup_new_yubikey(serial_num, scheme=DEFAULT_RSA_SIGNATURE_SCHEME):
     pin = get_key_pin(serial_num)
     cert_cn = input("Enter key holder's name: ")
     print("Generating key, please wait...")
-    pub_key_pem = setup(pin, cert_cn, cert_exp_days=EXPIRATION_INTERVAL).decode("utf-8")
+    pub_key_pem = setup(
+        pin, cert_cn, cert_exp_days=EXPIRATION_INTERVAL, serial=serial_num
+    ).decode("utf-8")
     scheme = DEFAULT_RSA_SIGNATURE_SCHEME
     key = import_rsakey_from_pem(pub_key_pem, scheme)
     return key
 
 
-def get_and_validate_pin(key_name, pin_confirm=True, pin_repeat=True):
+def get_and_validate_pin(key_name, serial=None, pin_confirm=True, pin_repeat=True):
     valid_pin = False
     while not valid_pin:
         pin = get_pin_for(key_name, pin_confirm, pin_repeat)
-        valid_pin, retries = is_valid_pin(pin)
+        valid_pin, retries = is_valid_pin(pin, serial=serial)
         if not valid_pin and not retries:
             raise InvalidPINError("No retries left. YubiKey locked.")
         if not valid_pin:
             if not click.confirm(
-                f"Incorrect PIN. Do you want to try again? {retries} retires left."
+                f"Incorrect PIN. Do you want to try again? {retries} retries left."
             ):
                 raise InvalidPINError("PIN input cancelled")
     return pin
@@ -419,6 +440,7 @@ def yubikey_prompt(
     prompt_message=None,
     retry_on_failure=True,
     hide_already_loaded_message=False,
+    serial=None,
 ):
     def _read_and_check_yubikey(
         key_name,
@@ -437,15 +459,12 @@ def yubikey_prompt(
             if prompt_message is None:
                 prompt_message = f"Please insert {key_name} YubiKey and press ENTER"
             getpass(prompt_message)
-        # make sure that YubiKey is inserted
         try:
-            serial_num = get_serial_num()
+            serial_num = get_serial_num(serial=serial)
         except Exception:
             print("YubiKey not inserted")
             return False, None, None
 
-        # check if this key is already loaded as the provided role's key (we can use the same key
-        # to sign different metadata)
         if (
             loaded_yubikeys is not None
             and serial_num in loaded_yubikeys
@@ -455,10 +474,9 @@ def yubikey_prompt(
                 print("Key already loaded")
             return False, None, None
 
-        # read the public key, unless a new key needs to be generated on the yubikey
-        public_key = get_piv_public_key_tuf() if not creating_new_key else None
-        # check if this yubikey is can be used for signing the provided role's metadata
-        # if the key was already registered as that role's key
+        public_key = (
+            get_piv_public_key_tuf(serial=serial) if not creating_new_key else None
+        )
         if not registering_new_key and role is not None and taf_repo is not None:
             if not taf_repo.is_valid_metadata_yubikey(role, public_key):
                 print(f"The inserted YubiKey is not a valid {role} key")
@@ -468,7 +486,12 @@ def yubikey_prompt(
             if creating_new_key:
                 pin = get_pin_for(key_name, pin_confirm, pin_repeat)
             else:
-                pin = get_and_validate_pin(key_name, pin_confirm, pin_repeat)
+                pin = get_and_validate_pin(
+                    key_name,
+                    serial=serial,
+                    pin_confirm=pin_confirm,
+                    pin_repeat=pin_repeat,
+                )
             add_key_pin(serial_num, pin)
 
         if get_key_public_key(serial_num) is None and public_key is not None:
@@ -504,7 +527,7 @@ def yubikey_prompt(
         retry_counter += 1
 
 
-def upload_key(key_path, slot) -> None:
+def upload_key(key_path, slot, serial=None) -> None:
     try:
         with open(key_path, "rb") as key_file:
             private_key_pem = key_file.read()
@@ -522,12 +545,26 @@ def upload_key(key_path, slot) -> None:
             print(f"Error: Invalid slot '{slot}' provided.")
             return
 
-        pin = get_and_validate_pin(f"YubiKey Slot {slot}")
+        pin = get_and_validate_pin(f"YubiKey Slot {slot}", serial=serial)
         setup(
             pin,
             cert_cn=f"Imported Key for Slot {slot}",
             private_key_pem=private_key_pem,
+            serial=serial,
         )
         print(f"Key successfully uploaded to YubiKey slot {slot}")
     except Exception as e:
         print(f"Error uploading key to YubiKey: {e}")
+
+
+def list_connected_yubikeys():
+    """Lists all connected YubiKeys with their serial numbers and details."""
+    yubikeys = list_all_devices()
+    if not yubikeys:
+        print("No YubiKeys connected.")
+    else:
+        for index, (_, info) in enumerate(yubikeys, start=1):
+            print(f"YubiKey {index}:")
+            print(f"  Serial Number: {info.serial}")
+            print(f"  Version: {info.version}")
+            print(f"  Form Factor: {info.form_factor}")

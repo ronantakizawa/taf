@@ -38,16 +38,13 @@ def update_snapshot_and_timestamp(
 
         if len(yubikeys):
             update_method = taf_repo.roles_yubikeys_update_method(role)
-            print(f"Updating YubiKeys for role: {role}")
             update_method(yubikeys, write=False)
 
         if len(keystore_keys):
             update_method = taf_repo.roles_keystore_update_method(role)
-            print(f"Updating keystore keys for role: {role}")
             update_method(keystore_keys, write=False)
 
     if write_all:
-        print("Writing all changes to disk...")
         taf_repo.writeall()
 
 

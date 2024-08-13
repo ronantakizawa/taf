@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Dict
 
 import securesystemslib
-from taf.yubikey import get_all_serials
+from taf.yubikey import get_all_serials, verify_yubikey_serial
 import tuf.roledb
 from securesystemslib.exceptions import Error as SSLibError
 from securesystemslib.interface import import_rsa_privatekey_from_file
@@ -146,26 +146,26 @@ def yubikey_signature_provider(name, key_id, key, data):  # pylint: disable=W061
     from binascii import hexlify
 
     def _check_key_and_get_pin(expected_key_id):
-        serial_nums_to_check = get_all_serials()
+        try:
+            serial = verify_yubikey_serial()
 
-        for serial in serial_nums_to_check:
-            try:
-                inserted_key = yk.get_piv_public_key_tuf(serial=serial)
+            inserted_key = yk.get_piv_public_key_tuf(serial=serial)
 
-                if expected_key_id != inserted_key["keyid"]:
-                    continue
+            if expected_key_id != inserted_key["keyid"]:
+                print(f"Key ID mismatch: Expected {expected_key_id}, but found {inserted_key['keyid']}.")
+                return None
 
-                serial_num = yk.get_serial_num(inserted_key)
+            serial_num = yk.get_serial_num(inserted_key)
 
-                pin = yk.get_key_pin(serial_num)
-                if pin is None:
-                    pin = yk.get_and_validate_pin(name)
-                return pin
-            except Exception as e:
-                print(f"Exception occurred while checking serial {serial}: {e}")
-                continue
+            pin = yk.get_key_pin(serial_num)
+            if pin is None:
+                pin = yk.get_and_validate_pin(name)
 
-        return None
+            return pin
+
+        except Exception as e:
+            print(f"Exception occurred while checking YubiKey with serial {serial}: {e}")
+            return None
 
     while True:
         # Check if the needed YubiKey is inserted before asking the user to do so
@@ -177,7 +177,6 @@ def yubikey_signature_provider(name, key_id, key, data):  # pylint: disable=W061
         input(f"\nInsert {name} and press Enter")
     signature = yk.sign_piv_rsa_pkcs1v15(data, pin)
     return {"keyid": key_id, "sig": hexlify(signature).decode()}
-
 
 class Repository:
     def __init__(self, path, name="default"):

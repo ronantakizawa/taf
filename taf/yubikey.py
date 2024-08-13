@@ -440,22 +440,6 @@ def get_and_validate_pin(key_name, serial=None, pin_confirm=True, pin_repeat=Tru
     return pin
 
 
-@raise_yubikey_err("Cannot get serial numbers.")
-def get_all_serials():
-    """Get serial numbers of all connected YubiKeys."""
-    serial_numbers = []
-    yubikeys = list_all_devices()  # Function that lists all connected YubiKeys
-    if not yubikeys:
-        print("No YubiKeys connected.")
-    else:
-        for _, info in yubikeys:
-            try:
-                serial_numbers.append(info.serial)
-            except AttributeError:
-                print(f"Failed to get serial for YubiKey: {info}")
-                continue
-    return serial_numbers
-
 
 def check_yubikey_serial(
     serial_num,

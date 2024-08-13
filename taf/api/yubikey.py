@@ -156,7 +156,6 @@ def setup_signing_yubikey(
         pin_confirm=True,
         pin_repeat=True,
         prompt_message="Please insert the new Yubikey and press ENTER",
-        serial=serial,
     )
     key = yk.setup_new_yubikey(serial_num)
     yk.export_yk_certificate(certs_dir, key, serial=serial)

@@ -98,18 +98,21 @@ def _yk_piv_ctrl(serial=None, pub_key_pem=None):
     """Context manager to open connection and instantiate Piv Session.
 
     Args:
-        - serial (optional): Specify the serial number of the YubiKey to use.
-        - pub_key_pem (optional): Match Yubikey's public key (PEM) if multiple keys
-                                  are inserted.
+        - pub_key_pem(str): Match Yubikey's public key (PEM) if multiple keys
+                            are inserted
 
     Returns:
         - ykman.piv.PivSession
 
     Raises:
-        - YubikeyError
+        - YubikeyError: If no matching YubiKey is found or connected.
     """
+    found = False
+
+    # If pub_key_pem is given, iterate all devices, read x509 certs and try to match public keys.
     if pub_key_pem is not None:
         for dev, info in list_all_devices():
+            # Connect to a YubiKey over a SmartCardConnection, which is needed for PIV.
             with dev.open_connection(SmartCardConnection) as connection:
                 session = PivSession(connection)
                 device_pub_key_pem = (
@@ -121,19 +124,29 @@ def _yk_piv_ctrl(serial=None, pub_key_pem=None):
                     )
                     .decode("utf-8")
                 )
+
+                # Tries to match without the last newline character
                 if (
-                    device_pub_key_pem == pub_key_pem
-                    or device_pub_key_pem[:-1] == pub_key_pem
+                    device_pub_key_pem == pub_key_pem["keyval"]["public"]
+                    or device_pub_key_pem[:-1] == pub_key_pem["keyval"]["public"]
                 ):
                     yield session, info.serial
-                    break
+                    found = True
+                    return
+
+    # If no pub_key_pem is given, use the serial number
     else:
         for dev, info in list_all_devices():
             if serial is None or info.serial == serial:
                 with dev.open_connection(SmartCardConnection) as connection:
                     session = PivSession(connection)
                     yield session, info.serial
-                    break
+                    found = True
+                    return
+
+    # If no YubiKey was found or matched, raise an exception
+    if not found:
+        raise YubikeyError("No matching YubiKey found or connected.")
 
 
 def is_inserted():
@@ -174,22 +187,21 @@ def is_valid_pin(pin, serial=None):
 
 
 @raise_yubikey_err("Cannot get serial number.")
-def get_serial_num(pub_key_pem=None, serial=None):
+def get_serial_num(pub_key_pem=None):
     """Get Yubikey serial number.
 
     Args:
-        - pub_key_pem (optional): Match Yubikey's public key (PEM) if multiple keys
-                                  are inserted.
-        - serial (optional): Specify the serial number of the YubiKey to use.
+        - pub_key_pem(str): Match Yubikey's public key (PEM) if multiple keys
+                            are inserted
 
     Returns:
-        Yubikey serial number.
+        Yubikey serial number
 
     Raises:
         - YubikeyError
     """
-    with _yk_piv_ctrl(pub_key_pem=pub_key_pem, serial=serial) as (_, serial_num):
-        return serial_num
+    with _yk_piv_ctrl(pub_key_pem=pub_key_pem) as (_, serial):
+        return serial
 
 
 @raise_yubikey_err("Cannot export x509 certificate.")
@@ -325,19 +337,18 @@ def setup(
       - reset to factory settings
       - set management key
       - generate key(RSA2048) or import given one
-      - generate and import self-signed certificate (X509)
+      - generate and import self-signed certificate(X509)
       - set pin retries
       - set pin
-      - set puk (same as pin)
+      - set puk(same as pin)
 
     Args:
-        - cert_cn (str): x509 common name
-        - cert_exp_days (int): x509 expiration (in days from now)
-        - pin_retries (int): Number of retries for PIN
-        - private_key_pem (optional): Private key in PEM format. If given, it will be
-                                      imported to Yubikey.
-        - mgm_key (bytes): New management key
-        - serial (optional): Specify the serial number of the YubiKey to use.
+        - cert_cn(str): x509 common name
+        - cert_exp_days(int): x509 expiration (in days from now)
+        - pin_retries(int): Number of retries for PIN
+        - private_key_pem(str): Private key in PEM format. If given, it will be
+                                imported to Yubikey.
+        - mgm_key(bytes): New management key
 
     Returns:
         PIV public key in PEM format (bytes)
@@ -345,31 +356,13 @@ def setup(
     Raises:
         - YubikeyError
     """
+
     with _yk_piv_ctrl(serial=serial) as (ctrl, _):
         # Factory reset and set PINs
         ctrl.reset()
 
         ctrl.authenticate(MANAGEMENT_KEY_TYPE.TDES, DEFAULT_MANAGEMENT_KEY)
         ctrl.set_management_key(MANAGEMENT_KEY_TYPE.TDES, mgm_key)
-
-        # Determine the first available slot
-        available_slot = None
-        for slot, slot_enum in [
-            ("SIGNATURE", SLOT.SIGNATURE),
-            ("AUTHENTICATION", SLOT.AUTHENTICATION),
-            ("KEY_MANAGEMENT", SLOT.KEY_MANAGEMENT),
-            ("CARD_AUTH", SLOT.CARD_AUTH),
-        ]:
-            try:
-                ctrl.get_certificate(slot_enum)
-                print(f"Slot {slot} already has a key.")
-            except Exception:
-                available_slot = slot_enum
-                print(f"Slot {slot} is available and will be used.")
-                break
-
-        if available_slot is None:
-            raise YubikeyError("No available slots found on the YubiKey.")
 
         # Generate RSA2048
         if private_key_pem is None:
@@ -388,7 +381,7 @@ def setup(
                     private_key_pem, pem_pwd, default_backend()
                 )
 
-        ctrl.put_key(available_slot, private_key, PIN_POLICY.ALWAYS)
+        ctrl.put_key(SLOT.SIGNATURE, private_key, PIN_POLICY.ALWAYS)
         pub_key = private_key.public_key()
         ctrl.authenticate(MANAGEMENT_KEY_TYPE.TDES, mgm_key)
         ctrl.verify_pin(DEFAULT_PIN)
@@ -409,7 +402,7 @@ def setup(
             .sign(private_key, hashes.SHA256(), default_backend())
         )
 
-        ctrl.put_certificate(available_slot, cert)
+        ctrl.put_certificate(SLOT.SIGNATURE, cert)
 
         ctrl.set_pin_attempts(pin_attempts=pin_retries, puk_attempts=pin_retries)
         ctrl.change_pin(DEFAULT_PIN, pin)
@@ -563,6 +556,7 @@ def yubikey_prompt(
                     print(f"The inserted YubiKey is not a valid {role} key")
                     continue
 
+                print(f"Found valid Yubikey for {role} key at serial {serial_num}")
                 handle_yubikey_pin(
                     serial_num, creating_new_key, key_name, pin_confirm, pin_repeat
                 )
@@ -616,3 +610,42 @@ def list_connected_yubikeys():
             print(f"  Serial Number: {info.serial}")
             print(f"  Version: {info.version}")
             print(f"  Form Factor: {info.form_factor}")
+
+
+def verify_yubikey_serial() -> int:
+    """
+    Checks the number of YubiKeys connected to the device.
+
+    - If one YubiKey is connected, returns that device's serial number.
+    - If more than one YubiKey is connected, prompts the user to enter the serial number of one of the devices.
+    - If the inputted serial matches one of the connected YubiKeys, returns that serial number.
+
+    Returns:
+        str: The serial number of the selected YubiKey.
+
+    Raises:
+        YubikeyError: If no YubiKeys are connected or if an invalid serial number is provided.
+    """
+    # List all connected YubiKeys
+    yubikeys = list_all_devices()
+
+    if not yubikeys:
+        raise YubikeyError("No YubiKeys connected.")
+
+    if len(yubikeys) == 1:
+        # If only one YubiKey is connected, return its serial number
+        return yubikeys[0][1].serial
+
+    # If more than one YubiKey is connected, prompt the user to select one
+    print("Multiple YubiKeys are connected:")
+    for _, info in yubikeys:
+        print(f"Serial: {info.serial}, Version: {info.version}")
+
+    selected_serial = input("Enter the serial number of the YubiKey you want to use: ")
+
+    # Validate the inputted serial number
+    for _, info in yubikeys:
+        if info.serial == int(selected_serial):
+            return int(selected_serial)
+
+    raise YubikeyError("Invalid serial number provided.")

@@ -4,7 +4,7 @@ from logdecorator import log_on_start, log_on_end
 from pathlib import Path
 from taf.models.types import RolesKeysData
 from taf.api.utils._conf import find_taf_directory
-from taf.yubikey import get_and_validate_pin, setup
+from taf.yubikey import get_and_validate_pin, setup, verify_yubikey_serial
 from tuf.repository_tool import (
     generate_and_write_rsa_keypair,
     generate_and_write_unencrypted_rsa_keypair,
@@ -58,13 +58,13 @@ def get_yubikey_slot(role_name: str) -> str:
         role_name: The name of the role (e.g., 'root', 'targets', 'snapshot', 'timestamp').
 
     Returns:
-        A string representing the YubiKey PIV slot (e.g., '9a', '9c', '9d', '9e').
+       An enum representing the YubiKey PIV slot.
     """
     role_slot_map = {
-        "root": "9a",  # Slot 9a is typically used for authentication
-        "targets": "9c",  # Slot 9c is typically used for digital signature
-        "snapshot": "9d",  # Slot 9d can be used for key management
-        "timestamp": "9e",  # Slot 9e can be used for card authentication
+        "root": SLOT.AUTHENTICATION,
+        "targets": SLOT.CARD_AUTH,
+        "snapshot": SLOT.SIGNATURE,
+        "timestamp": SLOT.SIGNATURE,
     }
     return role_slot_map.get(role_name.lower(), "9a")
 
@@ -115,25 +115,18 @@ def generate_keys(
                 print(f"{role.name} key:\n\n{private_key_val}\n\n")
 
             if role.is_yubikey:
-                slot = get_yubikey_slot(role.name)
-                # Convert the slot string ('9a', '9c', etc.) to the appropriate SLOT enum
-                slot_mapping = {
-                    "9a": SLOT.AUTHENTICATION,
-                    "9c": SLOT.SIGNATURE,
-                    "9d": SLOT.KEY_MANAGEMENT,
-                    "9e": SLOT.CARD_AUTH,
-                }
-                slot_enum = slot_mapping.get(slot)
+                print(
+                    f"Generating RSA {role.length}-bit key on YubiKey for {role.name}"
+                )
+                slot_enum = get_yubikey_slot(role.name)
                 if slot_enum is None:
-                    print(f"Error: Invalid slot '{slot}' provided.")
+                    print("Error: Invalid slot provided.")
                     continue
                 # Collect the PIN for the YubiKey (input will be hidden)
-                pin = get_and_validate_pin(f"{role.name} Key")
+                serial = verify_yubikey_serial()
+                pin = get_and_validate_pin(f"{role.name} Key", serial=serial)
 
                 # Use th existing setup function to generate the key on the YubiKey using the same key
-                print(
-                    f"Generating RSA {role.length}-bit key on YubiKey for slot {slot}"
-                )
                 cert_cn = f"{role.name} Key"
                 setup(
                     pin=pin,
@@ -145,8 +138,9 @@ def generate_keys(
                         format=serialization.PrivateFormat.TraditionalOpenSSL,
                         encryption_algorithm=serialization.NoEncryption(),
                     ),
+                    serial=serial,
                 )
 
                 print(
-                    f"Certificate successfully generated and stored on YubiKey in slot {slot}"
+                    f"Certificate successfully generated and stored on YubiKey in slot {slot_enum}"
                 )

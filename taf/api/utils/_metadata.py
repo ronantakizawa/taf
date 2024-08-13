@@ -50,8 +50,6 @@ def update_snapshot_and_timestamp(
         print("Writing all changes to disk...")
         taf_repo.writeall()
 
-    print("Finished update_snapshot_and_timestamp function.")
-
 
 @log_on_start(DEBUG, "Updating target metadata", logger=taf_logger)
 @log_on_end(DEBUG, "Updated target metadata", logger=taf_logger)

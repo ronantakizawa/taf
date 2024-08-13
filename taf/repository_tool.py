@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Dict
 
 import securesystemslib
-from taf.yubikey import get_all_serials, verify_yubikey_serial
+from taf.yubikey import verify_yubikey_serial
 import tuf.roledb
 from securesystemslib.exceptions import Error as SSLibError
 from securesystemslib.interface import import_rsa_privatekey_from_file
@@ -152,7 +152,9 @@ def yubikey_signature_provider(name, key_id, key, data):  # pylint: disable=W061
             inserted_key = yk.get_piv_public_key_tuf(serial=serial)
 
             if expected_key_id != inserted_key["keyid"]:
-                print(f"Key ID mismatch: Expected {expected_key_id}, but found {inserted_key['keyid']}.")
+                print(
+                    f"Key ID mismatch: Expected {expected_key_id}, but found {inserted_key['keyid']}."
+                )
                 return None
 
             serial_num = yk.get_serial_num(inserted_key)
@@ -164,7 +166,9 @@ def yubikey_signature_provider(name, key_id, key, data):  # pylint: disable=W061
             return pin
 
         except Exception as e:
-            print(f"Exception occurred while checking YubiKey with serial {serial}: {e}")
+            print(
+                f"Exception occurred while checking YubiKey with serial {serial}: {e}"
+            )
             return None
 
     while True:
@@ -177,6 +181,7 @@ def yubikey_signature_provider(name, key_id, key, data):  # pylint: disable=W061
         input(f"\nInsert {name} and press Enter")
     signature = yk.sign_piv_rsa_pkcs1v15(data, pin)
     return {"keyid": key_id, "sig": hexlify(signature).decode()}
+
 
 class Repository:
     def __init__(self, path, name="default"):

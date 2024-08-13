@@ -440,7 +440,6 @@ def get_and_validate_pin(key_name, serial=None, pin_confirm=True, pin_repeat=Tru
     return pin
 
 
-
 def check_yubikey_serial(
     serial_num,
     role,

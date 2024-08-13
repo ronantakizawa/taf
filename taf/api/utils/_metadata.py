@@ -23,24 +23,7 @@ def update_snapshot_and_timestamp(
     write_all: Optional[bool] = True,
     prompt_for_keys: Optional[bool] = False,
 ) -> None:
-    """
-    Sign snapshot and timestamp metadata files.
 
-    Arguments:
-        taf_repo: Authentication repository.
-        keystore: Keystore directory's path.
-        scheme (optional): Signature scheme.
-        write_all (optional): If True, writes authentication repository's
-            changes to disk.
-        prompt_for_keys (optional): Whether to ask the user to enter their key if it is not located inside the keystore directory.
-        push (optional): Flag specifying whether to push to remote
-
-    Side Effects:
-        Updates metadata files, saves changes to disk if write_all is True
-
-    Returns:
-        None
-    """
     loaded_yubikeys: Dict = {}
 
     for role in ("snapshot", "timestamp"):
@@ -52,15 +35,22 @@ def update_snapshot_and_timestamp(
             scheme=scheme,
             prompt_for_keys=prompt_for_keys,
         )
+
         if len(yubikeys):
             update_method = taf_repo.roles_yubikeys_update_method(role)
+            print(f"Updating YubiKeys for role: {role}")
             update_method(yubikeys, write=False)
+
         if len(keystore_keys):
             update_method = taf_repo.roles_keystore_update_method(role)
+            print(f"Updating keystore keys for role: {role}")
             update_method(keystore_keys, write=False)
 
     if write_all:
+        print("Writing all changes to disk...")
         taf_repo.writeall()
+
+    print("Finished update_snapshot_and_timestamp function.")
 
 
 @log_on_start(DEBUG, "Updating target metadata", logger=taf_logger)

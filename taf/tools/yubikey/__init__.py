@@ -3,7 +3,6 @@ import json
 from taf.api.yubikey import export_yk_certificate, export_yk_public_pem, get_yk_roles, setup_signing_yubikey, setup_test_yubikey
 from taf.exceptions import YubikeyError
 from taf.repository_utils import find_valid_repository
-from taf.api.keystore import setup_upload_key
 from taf.yubikey import list_connected_yubikeys
 from taf.tools.cli import catch_cli_exception
 
@@ -79,17 +78,8 @@ def setup_test_key_command():
     @click.argument("key-path")
     @click.option("--serial", type=int, help="YubiKey serial number to use")
     def setup_test_key(key_path, serial):
-        setup_test_yubikey(key_path, serial)
+        setup_test_yubikey(key_path, serial)  # Only pass key_path and serial
     return setup_test_key
-
-
-def upload_key_command():
-    @click.command(help="Upload a key to the YubiKey by specifying the path of the key")
-    @click.argument("key-path", type=click.Path(exists=True))
-    @click.option("--serial", type=int, help="YubiKey serial number to use")
-    def upload_key(key_path, serial):
-        setup_upload_key(key_path, serial)
-    return upload_key
 
 
 def list_keys_command():
@@ -107,5 +97,4 @@ def attach_to_group(group):
     group.add_command(export_certificate_command(), name='export-certificate')
     group.add_command(setup_signing_key_command(), name='setup-signing-key')
     group.add_command(setup_test_key_command(), name='setup-test-key')
-    group.add_command(upload_key_command(), name='upload-key')
     group.add_command(list_keys_command(), name='list-keys')

@@ -352,6 +352,25 @@ def setup(
         ctrl.authenticate(MANAGEMENT_KEY_TYPE.TDES, DEFAULT_MANAGEMENT_KEY)
         ctrl.set_management_key(MANAGEMENT_KEY_TYPE.TDES, mgm_key)
 
+        # Determine the first available slot
+        available_slot = None
+        for slot, slot_enum in [
+            ("SIGNATURE", SLOT.SIGNATURE),
+            ("AUTHENTICATION", SLOT.AUTHENTICATION),
+            ("KEY_MANAGEMENT", SLOT.KEY_MANAGEMENT),
+            ("CARD_AUTH", SLOT.CARD_AUTH),
+        ]:
+            try:
+                ctrl.get_certificate(slot_enum)
+                print(f"Slot {slot} already has a key.")
+            except Exception:
+                available_slot = slot_enum
+                print(f"Slot {slot} is available and will be used.")
+                break
+
+        if available_slot is None:
+            raise YubikeyError("No available slots found on the YubiKey.")
+
         # Generate RSA2048
         if private_key_pem is None:
             private_key = rsa.generate_private_key(65537, 2048, default_backend())
@@ -369,7 +388,7 @@ def setup(
                     private_key_pem, pem_pwd, default_backend()
                 )
 
-        ctrl.put_key(SLOT.SIGNATURE, private_key, PIN_POLICY.ALWAYS)
+        ctrl.put_key(available_slot, private_key, PIN_POLICY.ALWAYS)
         pub_key = private_key.public_key()
         ctrl.authenticate(MANAGEMENT_KEY_TYPE.TDES, mgm_key)
         ctrl.verify_pin(DEFAULT_PIN)
@@ -390,7 +409,7 @@ def setup(
             .sign(private_key, hashes.SHA256(), default_backend())
         )
 
-        ctrl.put_certificate(SLOT.SIGNATURE, cert)
+        ctrl.put_certificate(available_slot, cert)
 
         ctrl.set_pin_attempts(pin_attempts=pin_retries, puk_attempts=pin_retries)
         ctrl.change_pin(DEFAULT_PIN, pin)
@@ -428,6 +447,56 @@ def get_and_validate_pin(key_name, serial=None, pin_confirm=True, pin_repeat=Tru
     return pin
 
 
+@raise_yubikey_err("Cannot get serial numbers.")
+def get_all_serials():
+    """Get serial numbers of all connected YubiKeys."""
+    serial_numbers = []
+    yubikeys = list_all_devices()  # Function that lists all connected YubiKeys
+    if not yubikeys:
+        print("No YubiKeys connected.")
+    else:
+        for _, info in yubikeys:
+            try:
+                serial_numbers.append(info.serial)
+            except AttributeError:
+                print(f"Failed to get serial for YubiKey: {info}")
+                continue
+    return serial_numbers
+
+
+def check_yubikey_serial(
+    serial_num,
+    role,
+    taf_repo,
+    creating_new_key,
+    loaded_yubikeys,
+    hide_already_loaded_message,
+):
+    if (
+        loaded_yubikeys is not None
+        and serial_num in loaded_yubikeys
+        and role in loaded_yubikeys[serial_num]
+    ):
+        if not hide_already_loaded_message:
+            print("Key already loaded")
+        return False, None
+    return True, None
+
+
+def handle_yubikey_pin(serial_num, creating_new_key, key_name, pin_confirm, pin_repeat):
+    if get_key_pin(serial_num) is None:
+        if creating_new_key:
+            pin = get_pin_for(key_name, pin_confirm, pin_repeat)
+        else:
+            pin = get_and_validate_pin(
+                key_name,
+                serial=serial_num,
+                pin_confirm=pin_confirm,
+                pin_repeat=pin_repeat,
+            )
+        add_key_pin(serial_num, pin)
+
+
 def yubikey_prompt(
     key_name,
     role=None,
@@ -453,58 +522,66 @@ def yubikey_prompt(
         pin_repeat,
         prompt_message,
         retrying,
+        serial,
     ):
-
         if retrying:
             if prompt_message is None:
                 prompt_message = f"Please insert {key_name} YubiKey and press ENTER"
             getpass(prompt_message)
-        try:
-            serial_num = get_serial_num(serial=serial)
-        except Exception:
-            print("YubiKey not inserted")
-            return False, None, None
 
-        if (
-            loaded_yubikeys is not None
-            and serial_num in loaded_yubikeys
-            and role in loaded_yubikeys[serial_num]
-        ):
-            if not hide_already_loaded_message:
-                print("Key already loaded")
-            return False, None, None
+        serial_nums_to_check = [serial] if serial else get_all_serials()
 
-        public_key = (
-            get_piv_public_key_tuf(serial=serial) if not creating_new_key else None
-        )
-        if not registering_new_key and role is not None and taf_repo is not None:
-            if not taf_repo.is_valid_metadata_yubikey(role, public_key):
-                print(f"The inserted YubiKey is not a valid {role} key")
-                return False, None, None
+        for serial_num in serial_nums_to_check:
+            try:
+                if serial_num is None:
+                    print("YubiKey not inserted")
+                    return False, None, None
 
-        if get_key_pin(serial_num) is None:
-            if creating_new_key:
-                pin = get_pin_for(key_name, pin_confirm, pin_repeat)
-            else:
-                pin = get_and_validate_pin(
-                    key_name,
-                    serial=serial,
-                    pin_confirm=pin_confirm,
-                    pin_repeat=pin_repeat,
+                success, public_key = check_yubikey_serial(
+                    serial_num,
+                    role,
+                    taf_repo,
+                    creating_new_key,
+                    loaded_yubikeys,
+                    hide_already_loaded_message,
                 )
-            add_key_pin(serial_num, pin)
+                if not success:
+                    continue
 
-        if get_key_public_key(serial_num) is None and public_key is not None:
-            add_key_public_key(serial_num, public_key)
-            add_key_id_mapping(serial_num, key_name)
+                public_key = (
+                    get_piv_public_key_tuf(serial=serial_num)
+                    if not creating_new_key
+                    else None
+                )
 
-        if role is not None:
-            if loaded_yubikeys is None:
-                loaded_yubikeys = {serial_num: [role]}
-            else:
-                loaded_yubikeys.setdefault(serial_num, []).append(role)
+                if (
+                    not registering_new_key
+                    and role
+                    and taf_repo
+                    and not taf_repo.is_valid_metadata_yubikey(role, public_key)
+                ):
+                    print(f"The inserted YubiKey is not a valid {role} key")
+                    continue
 
-        return True, public_key, serial_num
+                handle_yubikey_pin(
+                    serial_num, creating_new_key, key_name, pin_confirm, pin_repeat
+                )
+
+                if get_key_public_key(serial_num) is None and public_key is not None:
+                    add_key_public_key(serial_num, public_key)
+                    add_key_id_mapping(serial_num, key_name)
+
+                if role:
+                    loaded_yubikeys = loaded_yubikeys or {}
+                    loaded_yubikeys.setdefault(serial_num, []).append(role)
+
+                return True, public_key, serial_num
+
+            except Exception as e:
+                print(f"Error checking YubiKey with serial {serial_num}: {e}")
+                continue
+
+        return False, None, None
 
     retry_counter = 0
     while True:
@@ -519,42 +596,13 @@ def yubikey_prompt(
             pin_repeat,
             prompt_message,
             retrying=retry_counter > 0,
+            serial=serial,
         )
         if not success and not retry_on_failure:
             return None, None
         if success:
             return key, serial_num
         retry_counter += 1
-
-
-def upload_key(key_path, slot, serial=None) -> None:
-    try:
-        with open(key_path, "rb") as key_file:
-            private_key_pem = key_file.read()
-
-        # Mapping the slot input to the correct SLOT enum
-        slot_mapping = {
-            "9a": SLOT.AUTHENTICATION,
-            "9c": SLOT.SIGNATURE,
-            "9d": SLOT.KEY_MANAGEMENT,
-            "9e": SLOT.CARD_AUTH,
-        }
-        slot_enum = slot_mapping.get(slot)
-
-        if slot_enum is None:
-            print(f"Error: Invalid slot '{slot}' provided.")
-            return
-
-        pin = get_and_validate_pin(f"YubiKey Slot {slot}", serial=serial)
-        setup(
-            pin,
-            cert_cn=f"Imported Key for Slot {slot}",
-            private_key_pem=private_key_pem,
-            serial=serial,
-        )
-        print(f"Key successfully uploaded to YubiKey slot {slot}")
-    except Exception as e:
-        print(f"Error uploading key to YubiKey: {e}")
 
 
 def list_connected_yubikeys():

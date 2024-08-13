@@ -4,7 +4,7 @@ from logdecorator import log_on_start, log_on_end
 from pathlib import Path
 from taf.models.types import RolesKeysData
 from taf.api.utils._conf import find_taf_directory
-from taf.yubikey import get_and_validate_pin, setup, upload_key
+from taf.yubikey import get_and_validate_pin, setup
 from tuf.repository_tool import (
     generate_and_write_rsa_keypair,
     generate_and_write_unencrypted_rsa_keypair,
@@ -150,8 +150,3 @@ def generate_keys(
                 print(
                     f"Certificate successfully generated and stored on YubiKey in slot {slot}"
                 )
-
-
-def setup_upload_key(key_path, slot) -> None:
-    slot = get_yubikey_slot(key_path.split("/")[-1])
-    upload_key(key_path, slot)
